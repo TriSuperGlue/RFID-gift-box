@@ -6,12 +6,14 @@
 
 enum class State { LOCKED, UNLOCKED };
 
-Button pageButton(PIN_PAGE_BUTTON, INPUT_PULLUP, LOW);
 Button cardSim(PIN_CARD_SIM, INPUT_PULLUP, LOW);   // stands in for the RFID reader
 Button lidSwitch(PIN_LID_SWITCH, INPUT_PULLDOWN_16, HIGH);
 
 State state = State::LOCKED;
 uint8_t page = 0;
+uint16_t frame = 0;
+unsigned long lastFrameAt = 0;
+unsigned long pageStartedAt = 0;
 
 bool lidIsClosed() {
   if (!USE_LID_SWITCH) return true;   // no sensor yet: assume closed
@@ -21,7 +23,10 @@ bool lidIsClosed() {
 void unlockBox() {
   lockOpen();
   page = 0;
-  displayShowPage(page);
+  frame = 0;
+  pageStartedAt = millis();
+  lastFrameAt = pageStartedAt;
+  displayShowPage(page, frame);
   state = State::UNLOCKED;
   Serial.println("UNLOCKED");
 }
@@ -33,9 +38,25 @@ void lockBox() {
   Serial.println("LOCKED");
 }
 
+void updateSlideshow() {
+  unsigned long now = millis();
+
+  if (now - pageStartedAt >= PAGE_MS) {
+    page = (page + 1) % displayPageCount();
+    pageStartedAt = now;
+    frame = 0;
+    lastFrameAt = 0;                  // force an immediate redraw
+  }
+
+  if (now - lastFrameAt >= FRAME_MS) {
+    lastFrameAt = now;
+    frame++;
+    displayShowPage(page, frame);
+  }
+}
+
 void setup() {
   Serial.begin(115200);
-  pageButton.begin();
   cardSim.begin();
   if (USE_LID_SWITCH) lidSwitch.begin();
   displayBegin();
@@ -43,7 +64,6 @@ void setup() {
 }
 
 void loop() {
-  pageButton.update();
   cardSim.update();
   if (USE_LID_SWITCH) lidSwitch.update();
 
@@ -51,15 +71,11 @@ void loop() {
 
   switch (state) {
     case State::LOCKED:
-      pageButton.wasPressed();   // discard presses made while locked
       if (cardTapped) unlockBox();
       break;
 
     case State::UNLOCKED:
-      if (pageButton.wasPressed()) {
-        page = (page + 1) % displayPageCount();
-        displayShowPage(page);
-      }
+      updateSlideshow();
       if (cardTapped) {
         if (lidIsClosed()) lockBox();
         else Serial.println("Close the lid first");
