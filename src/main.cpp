@@ -1,13 +1,13 @@
 #include <Arduino.h>
 #include "config.h"
 #include "button.h"
+#include "rfid.h"
 #include "lock.h"
 #include "display.h"
 
 enum class State { LOCKED, UNLOCKED };
 
-Button cardSim(PIN_CARD_SIM, INPUT_PULLUP, LOW);   // stands in for the RFID reader
-Button lidSwitch(PIN_LID_SWITCH, INPUT_PULLDOWN_16, HIGH);
+Button lidSwitch(PIN_LID_SWITCH, INPUT_PULLUP, LOW);
 
 State state = State::LOCKED;
 uint8_t page = 0;
@@ -16,7 +16,7 @@ unsigned long lastFrameAt = 0;
 unsigned long pageStartedAt = 0;
 
 bool lidIsClosed() {
-  if (!USE_LID_SWITCH) return true;   // no sensor yet: assume closed
+  if (!USE_LID_SWITCH) return true;
   return lidSwitch.isPressed();
 }
 
@@ -45,7 +45,7 @@ void updateSlideshow() {
     page = (page + 1) % displayPageCount();
     pageStartedAt = now;
     frame = 0;
-    lastFrameAt = 0;                  // force an immediate redraw
+    lastFrameAt = 0;
   }
 
   if (now - lastFrameAt >= FRAME_MS) {
@@ -57,17 +57,23 @@ void updateSlideshow() {
 
 void setup() {
   Serial.begin(115200);
-  cardSim.begin();
   if (USE_LID_SWITCH) lidSwitch.begin();
+  rfidBegin();
   displayBegin();
   lockBegin();
+  Serial.println("Ready. Tap card...");
 }
 
 void loop() {
-  cardSim.update();
   if (USE_LID_SWITCH) lidSwitch.update();
 
-  bool cardTapped = cardSim.wasPressed();
+  String card = rfidRead();
+  bool cardTapped = (card == CARD_ID);
+
+  if (card.length() > 0) {
+    Serial.print("Card: ");
+    Serial.println(card);
+  }
 
   switch (state) {
     case State::LOCKED:
